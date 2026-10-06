@@ -171,7 +171,8 @@ export class BusinessStartupService extends ChannelStartupService {
 
     const from = this.normalizePhoneNumber(message?.from);
     const displayPhone = this.normalizePhoneNumber(received?.metadata?.display_phone_number);
-    return !!from && from === displayPhone;
+    const phoneNumberId = this.normalizePhoneNumber(received?.metadata?.phone_number_id);
+    return !!from && (from === displayPhone || from === phoneNumberId);
   }
 
   private isCloudApiStatusFromMe(item: any, received: any) {
@@ -449,11 +450,6 @@ export class BusinessStartupService extends ChannelStartupService {
       let messageRaw: any;
       let pushName: any;
       let persistedMedia = false;
-      const incomingContact = received?.contacts?.[0];
-
-      if (incomingContact) {
-        pushName = incomingContact?.profile?.name ?? incomingContact?.name ?? incomingContact?.wa_id ?? undefined;
-      }
 
       if (received.messages) {
         const message = received.messages[0];
@@ -461,6 +457,14 @@ export class BusinessStartupService extends ChannelStartupService {
         if (!remoteId) return;
 
         const remoteJid = createJid(remoteId);
+        const incomingContact = Array.isArray(received.contacts)
+          ? received.contacts.find((item: any) => typeof item.wa_id === 'string' && createJid(item.wa_id) === remoteJid)
+          : undefined;
+
+        if (incomingContact) {
+          pushName = incomingContact.profile?.name ?? incomingContact.name ?? incomingContact.wa_id ?? undefined;
+        }
+
         const contact = await this.prismaRepository.contact.findFirst({
           where: { instanceId: this.instanceId, remoteJid },
         });
@@ -839,7 +843,7 @@ export class BusinessStartupService extends ChannelStartupService {
             }
 
             if (item.message === null && item.status === undefined) {
-              this.sendDataWebhook(Events.MESSAGES_DELETE, key);
+              await this.sendDataWebhook(Events.MESSAGES_DELETE, key);
 
               const message: any = {
                 messageId: findMessage.id,
@@ -856,7 +860,7 @@ export class BusinessStartupService extends ChannelStartupService {
               });
 
               if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled) {
-                this.chatwootService.eventWhatsapp(
+                await this.chatwootService.eventWhatsapp(
                   Events.MESSAGES_DELETE,
                   { instanceName: this.instance.name, instanceId: this.instanceId },
                   { key: key },
@@ -876,7 +880,7 @@ export class BusinessStartupService extends ChannelStartupService {
               instanceId: this.instanceId,
             };
 
-            this.sendDataWebhook(Events.MESSAGES_UPDATE, message);
+            await this.sendDataWebhook(Events.MESSAGES_UPDATE, message);
 
             await this.prismaRepository.messageUpdate.create({
               data: message,
